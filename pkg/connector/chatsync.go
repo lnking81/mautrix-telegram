@@ -167,6 +167,9 @@ func (tc *TelegramClient) syncChats(ctx context.Context, takeoutID int64, onLogi
 		if err != nil {
 			return fmt.Errorf("failed to get input peer for pagination: %w", err)
 		}
+		// Telegram paginates dialogs by the top message of the last dialog;
+		// with offset_peer alone it returns the first page again.
+		req.OffsetID, req.OffsetDate = dialogOffset(dialogList[len(dialogList)-1], dialogs.GetMessages())
 	}
 	if isFullSync {
 		tc.metadata.DialogSyncComplete = true
@@ -191,6 +194,35 @@ func (tc *TelegramClient) dialogToPortalKey(dialog tg.DialogClass) networkid.Por
 	default:
 		panic(fmt.Errorf("unknown dialog type %T", dialog))
 	}
+}
+
+// dialogOffset returns the offset_id and offset_date that make
+// messages.getDialogs continue after the given dialog: the ID of its top
+// message and that message's date. Zeroes if the message is not known.
+func dialogOffset(dialog tg.DialogClass, messages []tg.MessageClass) (offsetID, offsetDate int) {
+	var peer tg.PeerClass
+	switch d := dialog.(type) {
+	case *tg.Dialog:
+		peer, offsetID = d.Peer, d.TopMessage
+	case *tg.DialogFolder:
+		peer, offsetID = d.Peer, d.TopMessage
+	default:
+		return 0, 0
+	}
+	target := ids.MakeMessageID(peer, offsetID)
+	for _, msg := range messages {
+		if ids.GetMessageIDFromMessage(msg) != target {
+			continue
+		}
+		switch m := msg.(type) {
+		case *tg.Message:
+			return offsetID, m.Date
+		case *tg.MessageService:
+			return offsetID, m.Date
+		}
+		break
+	}
+	return offsetID, 0
 }
 
 func subtractLimit(limit, count int) int {
