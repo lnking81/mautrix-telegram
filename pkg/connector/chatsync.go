@@ -270,6 +270,7 @@ func (tc *TelegramClient) syncNormalDialog(
 	}
 
 	var chatInfo *bridgev2.ChatInfo
+	var skipHistory bool
 	switch peer := dialog.Peer.(type) {
 	case *tg.PeerUser:
 		switch user := users[peer.UserID].(type) {
@@ -316,6 +317,7 @@ func (tc *TelegramClient) syncNormalDialog(
 	case *tg.PeerChannel:
 		switch channel := chats[peer.ChannelID].(type) {
 		case *tg.Channel:
+			skipHistory = skipInitialHistory(channel)
 			var mfm *memberFetchMeta
 			chatInfo, mfm, err = tc.wrapChatInfo(portal.ID, channel)
 			if err != nil {
@@ -376,7 +378,7 @@ func (tc *TelegramClient) syncNormalDialog(
 		},
 		CheckNeedsBackfillFunc: func(ctx context.Context, latestMessage *database.Message) (bool, error) {
 			if latestMessage == nil {
-				return true, nil
+				return !skipHistory, nil
 			}
 			_, latestMessageID, err := ids.ParseMessageID(latestMessage.ID)
 			if err != nil {
