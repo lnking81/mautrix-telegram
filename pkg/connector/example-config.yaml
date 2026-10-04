@@ -90,6 +90,22 @@ takeout:
     # This only affects the backfill queue, which is only available on Beeper.
     backward_backfill: false
 
+# Which channels and supergroups get their existing history backfilled when
+# their portal is created. Live messages are always bridged, and chats that do
+# get history are still capped by backfill.max_initial_messages. Private chats
+# and basic groups are always backfilled. The defaults keep upstream behavior.
+# Every chat sync logs one "Dialog sync decision" line per chat with the result.
+initial_history:
+    # Skip the history of broadcast channels.
+    skip_channels: false
+    # Skip the history of public supergroups (groups that have a @username).
+    skip_public_groups: false
+    # Skip the history of supergroups with more members than this. -1 means no limit.
+    skip_groups_over_members: -1
+    # Portal IDs that always get history even if a rule above matches,
+    # e.g. "channel:1234567890" (the portal_id field of the decision log line).
+    always_backfill: []
+
 # Maximum number of participants in chats to bridge. Only applies when the
 # portal is being created. If there are more members when trying to create a
 # room, the room creation will be cancelled.
