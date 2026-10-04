@@ -47,6 +47,16 @@ func (c MemberListConfig) NormalizedMaxInitialSync() int {
 	return c.MaxInitialSync
 }
 
+// InitialHistoryConfig selects channels and supergroups whose existing history
+// is not backfilled when their portal is created. Live messages are always
+// bridged. The zero-rule defaults in the example config keep upstream behavior.
+type InitialHistoryConfig struct {
+	SkipChannels          bool     `yaml:"skip_channels"`
+	SkipPublicGroups      bool     `yaml:"skip_public_groups"`
+	SkipGroupsOverMembers int      `yaml:"skip_groups_over_members"`
+	AlwaysBackfill        []string `yaml:"always_backfill"`
+}
+
 type DeviceInfo struct {
 	DeviceModel    string `yaml:"device_model"`
 	SystemVersion  string `yaml:"system_version"`
@@ -89,6 +99,8 @@ type TelegramConfig struct {
 		ForwardBackfill  bool `yaml:"forward_backfill"`
 		BackwardBackfill bool `yaml:"backward_backfill"`
 	} `yaml:"takeout"`
+
+	InitialHistory InitialHistoryConfig `yaml:"initial_history"`
 
 	ContactAvatars                       bool                `yaml:"contact_avatars"`
 	ContactNames                         bool                `yaml:"contact_names"`
@@ -183,6 +195,10 @@ func upgradeConfig(helper up.Helper) {
 	helper.Copy(up.Bool, "takeout", "dialog_sync")
 	helper.Copy(up.Bool, "takeout", "forward_backfill")
 	helper.Copy(up.Bool, "takeout", "backward_backfill")
+	helper.Copy(up.Bool, "initial_history", "skip_channels")
+	helper.Copy(up.Bool, "initial_history", "skip_public_groups")
+	helper.Copy(up.Int, "initial_history", "skip_groups_over_members")
+	helper.Copy(up.List, "initial_history", "always_backfill")
 	helper.Copy(up.Bool, "contact_avatars")
 	helper.Copy(up.Bool, "contact_names")
 	helper.Copy(up.Int, "max_member_count")
@@ -207,6 +223,7 @@ func (tc *TelegramConnector) GetConfig() (example string, data any, upgrader up.
 			{"proxy"},
 			{"sync"},
 			{"takeout"},
+			{"initial_history"},
 			{"max_member_count"},
 		},
 		Base: ExampleConfig,

@@ -20,6 +20,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
@@ -270,7 +271,9 @@ func (tc *TelegramClient) syncNormalDialog(
 	}
 
 	var chatInfo *bridgev2.ChatInfo
-	var skipHistory bool
+	var kind, title, skipReason string
+	var members int
+	var public bool
 	switch peer := dialog.Peer.(type) {
 	case *tg.PeerUser:
 		switch user := users[peer.UserID].(type) {
@@ -283,6 +286,11 @@ func (tc *TelegramClient) syncNormalDialog(
 			if err != nil {
 				return fmt.Errorf("failed to get dm info for %d: %w", peer.UserID, err)
 			}
+			kind, members = "dm", 2
+			if user.Bot {
+				kind = "bot"
+			}
+			title = strings.TrimSpace(user.FirstName + " " + user.LastName)
 		default:
 			log.Debug().
 				Int64("user_id", peer.UserID).
@@ -302,6 +310,7 @@ func (tc *TelegramClient) syncNormalDialog(
 			if err != nil {
 				return fmt.Errorf("failed to get chat info for %s: %w", portalKey, err)
 			}
+			kind, title, members = "group", chat.Title, chat.ParticipantsCount
 		case *tg.ChatForbidden:
 			log.Debug().
 				Int64("chat_id", peer.ChatID).
@@ -317,7 +326,14 @@ func (tc *TelegramClient) syncNormalDialog(
 	case *tg.PeerChannel:
 		switch channel := chats[peer.ChannelID].(type) {
 		case *tg.Channel:
-			skipHistory = skipInitialHistory(channel)
+			skipReason = tc.main.Config.InitialHistory.SkipReason(channel)
+			kind, title, members = "supergroup", channel.Title, channel.ParticipantsCount
+			if channel.Broadcast {
+				kind = "channel"
+			} else if channel.Forum {
+				kind = "forum"
+			}
+			public = channel.Username != "" || len(channel.Usernames) > 0
 			var mfm *memberFetchMeta
 			chatInfo, mfm, err = tc.wrapChatInfo(portal.ID, channel)
 			if err != nil {
@@ -342,6 +358,25 @@ func (tc *TelegramClient) syncNormalDialog(
 		}
 	}
 
+	logDecision := func(action string) {
+		history := fmt.Sprintf("up to %d messages", tc.main.Bridge.Config.Backfill.MaxInitialMessages)
+		if skipReason != "" {
+			history = "skipped"
+		} else if portal.MXID != "" {
+			history = "catch-up only (portal exists)"
+		}
+		log.Info().
+			Str("portal_id", string(portal.ID)).
+			Str("kind", kind).
+			Str("title", title).
+			Int("members", members).
+			Bool("public", public).
+			Str("action", action).
+			Str("initial_history", history).
+			Str("skip_reason", skipReason).
+			Msg("Dialog sync decision")
+	}
+
 	if portal.MXID == "" {
 		// Check what the latest message is
 		topMessage := messages[ids.MakeMessageID(dialog.Peer, dialog.TopMessage)]
@@ -360,8 +395,12 @@ func (tc *TelegramClient) syncNormalDialog(
 		}
 
 		if !allowCreate {
+			logDecision("not created (sync.create_limit)")
 			return nil
 		}
+		logDecision("create")
+	} else {
+		logDecision("resync")
 	}
 
 	tc.fillUserLocalMeta(chatInfo, dialog)
@@ -378,7 +417,7 @@ func (tc *TelegramClient) syncNormalDialog(
 		},
 		CheckNeedsBackfillFunc: func(ctx context.Context, latestMessage *database.Message) (bool, error) {
 			if latestMessage == nil {
-				return !skipHistory, nil
+				return skipReason == "", nil
 			}
 			_, latestMessageID, err := ids.ParseMessageID(latestMessage.ID)
 			if err != nil {

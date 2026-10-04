@@ -162,8 +162,12 @@ func (tc *TelegramClient) wrapChatInfo(portalID networkid.PortalID, rawChat tg.C
 	case *tg.Channel:
 		mfm.Input = chat.AsInput()
 		mfm.IsBroadcast = chat.Broadcast
-		if skipInitialHistory(chat) {
+		if reason := tc.main.Config.InitialHistory.SkipReason(chat); reason != "" {
 			info.CanBackfill = false
+			tc.userLogin.Log.Info().
+				Str("portal_id", string(portalID)).
+				Str("reason", reason).
+				Msg("Initial history disabled for chat by network.initial_history config")
 		}
 		info.Name = &chat.Title
 		info.Members.TotalMemberCount = chat.ParticipantsCount
@@ -709,16 +713,26 @@ func (tc *TelegramClient) getPowerLevelOverridesFromBannedRights(entity tg.ChatC
 	return &plo
 }
 
-// skipHistoryMinMembers is the member count above which a supergroup is
-// treated like a channel and gets no initial history backfill.
-const skipHistoryMinMembers = 1000
-
-// skipInitialHistory reports whether a chat's existing history should be left
-// out when its portal is created: broadcast channels, public supergroups and
-// large supergroups. New messages are still bridged.
-func skipInitialHistory(chat *tg.Channel) bool {
-	if chat.Broadcast {
-		return true
+// SkipReason reports why the existing history of a channel or supergroup is
+// not backfilled when its portal is created, or "" if it is backfilled.
+func (c InitialHistoryConfig) SkipReason(chat *tg.Channel) string {
+	if slices.Contains(c.AlwaysBackfill, string(ids.MakePortalID(ids.PeerTypeChannel, chat.ID))) {
+		return ""
 	}
-	return chat.Megagroup && (chat.Username != "" || len(chat.Usernames) > 0 || chat.ParticipantsCount > skipHistoryMinMembers)
+	if chat.Broadcast {
+		if c.SkipChannels {
+			return "channel"
+		}
+		return ""
+	}
+	if !chat.Megagroup {
+		return ""
+	}
+	if c.SkipPublicGroups && (chat.Username != "" || len(chat.Usernames) > 0) {
+		return "public group"
+	}
+	if c.SkipGroupsOverMembers >= 0 && chat.ParticipantsCount > c.SkipGroupsOverMembers {
+		return "group over member limit"
+	}
+	return ""
 }
