@@ -101,6 +101,9 @@ initial_history:
     # Skip the history of public supergroups (groups that have a @username).
     skip_public_groups: false
     # Skip the history of supergroups with more members than this. -1 means no limit.
+    # When a portal is created from an incoming message, the full channel info is
+    # fetched to get the member count; if it is still unknown, the history is skipped
+    # (logged with reason "member count unknown").
     skip_groups_over_members: -1
     # Portal IDs that always get history even if a rule above matches,
     # e.g. "channel:1234567890" (the portal_id field of the decision log line).

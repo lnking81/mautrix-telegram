@@ -186,6 +186,18 @@ func (tc *TelegramClient) onUpdateChannel(ctx context.Context, e tg.Entities, up
 			} else {
 				return nil, nil
 			}
+			if portal.MXID == "" && channel != nil && channel.Megagroup && tc.main.Config.InitialHistory.SkipGroupsOverMembers >= 0 {
+				if _, ok := channel.GetParticipantsCount(); !ok {
+					// The update's channel entity has no member count, so network.initial_history
+					// can't apply skip_groups_over_members. Fetch the full channel for the real count.
+					fullInfo, err := tc.GetChatInfo(ctx, portal)
+					if err == nil {
+						return fullInfo, nil
+					}
+					zerolog.Ctx(ctx).Warn().Err(err).
+						Msg("Failed to get full channel info for new portal, initial history will be skipped")
+				}
+			}
 			chatInfo, mfm, err := tc.wrapChatInfo(portal.ID, chatInfoClass)
 			if err != nil {
 				return nil, err

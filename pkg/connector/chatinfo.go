@@ -371,6 +371,17 @@ func (tc *TelegramClient) wrapFullChatInfo(portalID networkid.PortalID, fullChat
 	if chat == nil {
 		return nil, nil, fmt.Errorf("chat ID %d not found in full chat", fullChat.FullChat.GetID())
 	}
+	// The channel entity in the response may lack the member count that
+	// network.initial_history decides on, take it from the full channel instead.
+	if channel, ok := chat.(*tg.Channel); ok {
+		if full, ok := fullChat.FullChat.(*tg.ChannelFull); ok {
+			if count, ok := full.GetParticipantsCount(); ok {
+				withCount := *channel
+				withCount.SetParticipantsCount(count)
+				chat = &withCount
+			}
+		}
+	}
 
 	info, mfm, err := tc.wrapChatInfo(portalID, chat)
 	if err != nil {
@@ -731,8 +742,14 @@ func (c InitialHistoryConfig) SkipReason(chat *tg.Channel) string {
 	if c.SkipPublicGroups && (chat.Username != "" || len(chat.Usernames) > 0) {
 		return "public group"
 	}
-	if c.SkipGroupsOverMembers >= 0 && chat.ParticipantsCount > c.SkipGroupsOverMembers {
-		return "group over member limit"
+	if c.SkipGroupsOverMembers >= 0 {
+		// Channel entities from updates usually don't carry the member count.
+		count, ok := chat.GetParticipantsCount()
+		if !ok {
+			return "member count unknown"
+		} else if count > c.SkipGroupsOverMembers {
+			return "group over member limit"
+		}
 	}
 	return ""
 }
